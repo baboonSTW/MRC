@@ -14,6 +14,7 @@ except ImportError:
     from ompl import base as ob
     from ompl import geometric as og
 import pybullet as p
+import numpy as np
 import utils
 import time
 from itertools import product
@@ -21,7 +22,7 @@ import copy
 
 INTERPOLATE_NUM = 500
 DEFAULT_PLANNING_TIME = 5.0
-
+EE_Index = 11
 class PbOMPLRobot():
     '''
     To use with Pb_OMPL. You need to construct a instance of this class and pass to PbOMPL.
@@ -38,6 +39,10 @@ class PbOMPLRobot():
         all_joint_num = p.getNumJoints(id)
         all_joint_idx = list(range(all_joint_num))
         joint_idx = [j for j in all_joint_idx if self._is_not_fixed(j)]
+        
+        # Ignore the graper
+        joint_idx = joint_idx[:7]
+        
         self.num_dim = len(joint_idx)
         self.joint_idx = joint_idx
         print(self.joint_idx)
@@ -49,6 +54,13 @@ class PbOMPLRobot():
         joint_info = p.getJointInfo(self.id, joint_idx)
         return joint_info[2] != p.JOINT_FIXED
 
+    def get_ee_pose_from_state(self, joint_values):
+        for j in range(7):
+            p.resetJointState(self.id, j, joint_values[j])
+        ee_state = p.getLinkState(self.id, linkIndex=EE_Index)
+        pos, quat = np.array(ee_state[4]), np.array(ee_state[5])
+        return pos, quat
+    
     def get_joint_bounds(self):
         '''
         Get joint bounds.
@@ -114,7 +126,7 @@ class PbStateSpace(ob.RealVectorStateSpace):
         self.state_sampler = state_sampler
 
 class PbOMPL():
-    def __init__(self, robot, obstacles = []) -> None:
+    def __init__(self, robot, constraint, obstacles = []) -> None:
         '''
         Args
             robot: A PbOMPLRobot instance.
@@ -126,17 +138,21 @@ class PbOMPL():
         print(self.obstacles)
 
         self.space = PbStateSpace(robot.num_dim)
-
         bounds = ob.RealVectorBounds(robot.num_dim)
         joint_bounds = self.robot.get_joint_bounds()
         for i, bound in enumerate(joint_bounds):
             bounds.setLow(i, bound[0])
             bounds.setHigh(i, bound[1])
         self.space.setBounds(bounds)
-
-        self.ss = og.SimpleSetup(self.space)
+        # self.space.setup()
+        # self.si = ob.SpaceInformation(self.space)
+        
+        self.cspace = ob.ConstrainedStateSpace(self.space, constraint)
+        self.si = ob.SpaceInformation(self.cspace)
+        self.cspace.setSpaceInformation(self.si)
+        self.ss = og.SimpleSetup(self.cspace)
         self.ss.setStateValidityChecker(ob.StateValidityCheckerFn(self.is_state_valid))
-        self.si = self.ss.getSpaceInformation()
+        # self.si = self.ss.getSpaceInformation()
         # self.si.setStateValidityCheckingResolution(0.005)
         # self.collision_fn = pb_utils.get_collision_fn(self.robot_id, self.robot.joint_idx, self.obstacles, [], True, set(),
         #                                                 custom_limits={}, max_distance=0, allow_collision_links=[])
@@ -216,16 +232,19 @@ class PbOMPL():
         orig_robot_state = self.robot.get_cur_state()
 
         # set the start and goal states;
-        s = ob.State(self.space)
-        g = ob.State(self.space)
+        s = ob.State(self.cspace)
         for i in range(len(start)):
             s[i] = start[i]
-            g[i] = goal[i]
 
-        self.ss.setStartAndGoalStates(s, g)
-
+        self.ss.addStartState(s)
+        self.ss.setGoal(goal)
+        
         # attempt to solve the problem within allowed planning time
-        solved = self.ss.solve(allowed_time)
+        print(type(self.ss))
+        print(dir(self.ss))
+        print(self.ss.solve)
+        # solved = self.ss.solve()
+        # self.ss.solve()
         res = False
         sol_path_list = []
         if solved:
