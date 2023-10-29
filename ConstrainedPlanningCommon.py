@@ -144,7 +144,11 @@ class ConstrainedProblem(object):
             self.css.anchorChart(goal())
 
         # Setup problem
-        self.ss.setStartAndGoalStates(start, goal)
+        if type(goal) == ob.State:
+            self.ss.setStartAndGoalStates(start, goal)
+        else:
+            self.ss.setStartState(start)
+            self.ss.setGoal(goal)
 
     def getPlanner(self, plannerName, projectionName=None):
         planner = eval('og.%s(self.csi)' % plannerName)
@@ -170,7 +174,7 @@ class ConstrainedProblem(object):
     def solveOnce(self, output=False, name="ompl"):
         self.ss.setup()
         stat = self.ss.solve(self.options.time)
-
+        simplePath = None
         if stat:
             # Get solution and validate
             path = self.ss.getSolutionPath()
@@ -216,7 +220,7 @@ class ConstrainedProblem(object):
         else:
             ou.OMPL_WARN("No solution found.")
 
-        return stat
+        return stat, simplePath
 
     def setupBenchmark(self, planners, problem):
         self.bench = ot.Benchmark(self.ss, problem)

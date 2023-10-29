@@ -19,6 +19,7 @@ import utils
 import time
 from itertools import product
 import copy
+import pybullet_utils.bullet_client as bc
 
 INTERPOLATE_NUM = 500
 DEFAULT_PLANNING_TIME = 5.0
@@ -31,12 +32,15 @@ class PbOMPLRobot():
     This parent class by default assumes that all joints are acutated and should be planned. If this is not your desired
     behaviour, please write your own inheritated class that overrides respective functionalities.
     '''
-    def __init__(self, id) -> None:
+    def __init__(self, id, visual_bullet_connection) -> None:
         # Public attributes
-        self.id = id
-
+        self.id_visual = id
+        self.visual_bullet_connection = visual_bullet_connection
+        self.compute_bullet_connection = bc.BulletClient(connection_mode=p.DIRECT)
+        self.id_compute = self.compute_bullet_connection.loadURDF("franka_panda/panda_with_stick.urdf", [2.5, -0.5, 3], [0, 1, 0, 0], useFixedBase = 1)
+        
         # prune fixed joints
-        all_joint_num = p.getNumJoints(id)
+        all_joint_num = self.compute_bullet_connection.getNumJoints(id)
         all_joint_idx = list(range(all_joint_num))
         joint_idx = [j for j in all_joint_idx if self._is_not_fixed(j)]
         
@@ -51,13 +55,13 @@ class PbOMPLRobot():
         self.reset()
 
     def _is_not_fixed(self, joint_idx):
-        joint_info = p.getJointInfo(self.id, joint_idx)
-        return joint_info[2] != p.JOINT_FIXED
+        joint_info = self.visual_bullet_connection.getJointInfo(self.id_visual, joint_idx)
+        return joint_info[2] != self.visual_bullet_connection.JOINT_FIXED
 
     def get_ee_pose_from_state(self, joint_values):
         for j in range(7):
-            p.resetJointState(self.id, j, joint_values[j])
-        ee_state = p.getLinkState(self.id, linkIndex=EE_Index)
+            self.compute_bullet_connection.resetJointState(self.id_compute, j, joint_values[j])
+        ee_state = self.compute_bullet_connection.getLinkState(self.id_compute, linkIndex=EE_Index)
         pos, quat = np.array(ee_state[4]), np.array(ee_state[5])
         return pos, quat
     
@@ -67,7 +71,7 @@ class PbOMPLRobot():
         By default, read from pybullet
         '''
         for i, joint_id in enumerate(self.joint_idx):
-            joint_info = p.getJointInfo(self.id, joint_id)
+            joint_info = self.compute_bullet_connection.getJointInfo(self.id_compute, joint_id)
             low = joint_info[8] # low bounds
             high = joint_info[9] # high bounds
             if low < high:
@@ -100,8 +104,8 @@ class PbOMPLRobot():
 
     def _set_joint_positions(self, joints, positions):
         for joint, value in zip(joints, positions):
-            p.resetJointState(self.id, joint, value, targetVelocity=0)
-
+            self.visual_bullet_connection.resetJointState(self.id_visual, joint, value, targetVelocity=0)
+            self.compute_bullet_connection.resetJointState(self.id_compute, joint, value, targetVelocity=0)
 class PbStateSpace(ob.RealVectorStateSpace):
     def __init__(self, num_dim) -> None:
         super().__init__(num_dim)
@@ -273,23 +277,23 @@ class PbOMPL():
         start = self.robot.get_cur_state()
         return self.plan_start_goal(start, goal, allowed_time=allowed_time)
 
-    def execute(self, path, dynamics=False):
-        '''
-        Execute a planned plan. Will visualize in pybullet.
-        Args:
-            path: list[state], a list of state
-            dynamics: allow dynamic simulation. If dynamics is false, this API will use robot.set_state(),
-                      meaning that the simulator will simply reset robot's state WITHOUT any dynamics simulation. Since the
-                      path is collision free, this is somewhat acceptable.
-        '''
-        for q in path:
-            if dynamics:
-                for i in range(self.robot.num_dim):
-                    p.setJointMotorControl2(self.robot.id, i, p.POSITION_CONTROL, q[i],force=5 * 240.)
-            else:
-                self.robot.set_state(q)
-            p.stepSimulation()
-            time.sleep(0.01)
+    # def execute(self, path, dynamics=False):
+    #     '''
+    #     Execute a planned plan. Will visualize in pybullet.
+    #     Args:
+    #         path: list[state], a list of state
+    #         dynamics: allow dynamic simulation. If dynamics is false, this API will use robot.set_state(),
+    #                   meaning that the simulator will simply reset robot's state WITHOUT any dynamics simulation. Since the
+    #                   path is collision free, this is somewhat acceptable.
+    #     '''
+    #     for q in path:
+    #         if dynamics:
+    #             for i in range(self.robot.num_dim):
+    #                 p.setJointMotorControl2(self.robot.id, i, p.POSITION_CONTROL, q[i],force=5 * 240.)
+    #         else:
+    #             self.robot.set_state(q)
+    #         p.stepSimulation()
+    #         time.sleep(0.01)
 
 
 
