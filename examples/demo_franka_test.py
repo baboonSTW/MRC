@@ -34,14 +34,18 @@ import pb_ompl
 # import ConstraintGeneration
 
 class EEConstraint(ob.Constraint):
-    def __init__(self):
-        super().__init__(7, 2)  # One constraint at a time
-
+    def __init__(self, robot):
+        super().__init__(7, 1)  # One constraint at a time
+        self.robot = robot
+        self.init_joint_state = self.robot.get_cur_state()
+        self.init_ee_pose, self.init_ee_orientation = self.robot.get_ee_pose_from_state(self.init_joint_state)
+        
     def function(self, x, out):
-        out[0] = 0
-        out[1] = 0
+        current_ee_pose, _ = self.robot.get_ee_pose_from_state(x)
+        # print(current_ee_pose)
+        out[0] = abs(self.init_ee_pose[0] - current_ee_pose[0]) + abs(self.init_ee_pose[1] - current_ee_pose[1])
 
-class DisplacementGoal(ob.Goal):
+class DisplacementGoalRegion(ob.GoalRegion):
     def __init__(self, si, robot):
         super().__init__(si)
         self.robot = robot
@@ -50,17 +54,70 @@ class DisplacementGoal(ob.Goal):
         self.init_ee_pose, self.init_ee_orientation = self.robot.get_ee_pose_from_state(self.init_joint_state)
         self.goal_ee_pose = self.init_ee_pose - np.array([0,0,0.4])
         
+        self.threshold = None
+        self.setThreshold(0.001)
+        
         # FOR DEBUGGING
         self.closest = np.inf
         print("Init ee pose: ", self.init_ee_pose)
         print("Goal ee pose: ", self.goal_ee_pose)
-    def isSatisfied(self, state):
+        
+    def distanceGoal(self, state):
+        current_ee_pose, _ = self.robot.get_ee_pose_from_state(state)
+        dis = np.linalg.norm(current_ee_pose-self.goal_ee_pose)
+        print(dis)
+        return dis
+    
+    def isSatisfied(self, state, dis):
         current_ee_pose, _ = self.robot.get_ee_pose_from_state(state)
         dis = np.linalg.norm(current_ee_pose-self.goal_ee_pose)
         if dis < self.closest:
             self.closest = dis
             print("closest: ", self.closest)
-        if dis < 0.01:
+        threshold = self.getThreshold()
+        if dis < threshold:
+            return True
+        return False 
+           
+    def getThreshold(self):
+        return self.threshold
+    
+    def setThreshold(self, threshold):
+        self.threshold = threshold
+        
+    # def isSatisfied(self, state):
+    #     current_ee_pose, _ = self.robot.get_ee_pose_from_state(state)
+    #     dis = np.linalg.norm(current_ee_pose-self.goal_ee_pose)
+    #     if dis < self.closest:
+    #         self.closest = dis
+    #         print("In origin satisfied function. closest: ", self.closest)
+    #     if dis < 0.01:
+    #         return True
+    #     return False 
+    
+class DisplacementGoal(ob.Goal):
+    def __init__(self, si, robot):
+        super().__init__(si)
+        self.robot = robot
+        # Make sure you run self.robot.set_state(state) before create the goal instance
+        self.init_joint_state = self.robot.get_cur_state()
+        self.init_ee_pose, self.init_ee_orientation = self.robot.get_ee_pose_from_state(self.init_joint_state)
+        self.goal_ee_pose = self.init_ee_pose - np.array([0,0,0.4])
+        # self.threshold = None
+        # self.setThreshold(0.001)
+        
+        # FOR DEBUGGING
+        self.closest = np.inf
+        print("Init ee pose: ", self.init_ee_pose)
+        print("Goal ee pose: ", self.goal_ee_pose)
+        
+    def isSatisfied(self, state):
+        current_ee_pose, _ = self.robot.get_ee_pose_from_state(state)
+        dis = np.linalg.norm(current_ee_pose-self.goal_ee_pose)
+        if dis < self.closest:
+            self.closest = dis
+            print("In origin satisfied function. closest: ", self.closest)
+        if dis < 0.001:
             return True
         return False 
            
@@ -98,7 +155,7 @@ class Demo():
         self.space.setBounds(bounds)
         
         # Create the constraints
-        constraint = EEConstraint()
+        constraint = EEConstraint(self.robot)
         
         self.cp = ConstrainedProblem(options.space, self.space, constraint, options)
         
@@ -197,6 +254,7 @@ class Demo():
             if stat:
                 sol_path_states = simplePath.getStates()
                 sol_path_list = [self.state_to_list(state) for state in sol_path_states]
+                print(sol_path_list)
                 while True:
                     self.pybullet_execute(sol_path_list)
         else:

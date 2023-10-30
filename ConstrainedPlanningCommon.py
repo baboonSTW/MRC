@@ -173,6 +173,7 @@ class ConstrainedProblem(object):
 
     def solveOnce(self, output=False, name="ompl"):
         self.ss.setup()
+        # stat = self.ss.solve()
         stat = self.ss.solve(self.options.time)
         simplePath = None
         if stat:
